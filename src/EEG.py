@@ -14,6 +14,7 @@ class EEG_dataset():
         """
         self.data = None
         self.sample_rate = 500
+        self.times = np.arange(-200,800,2,dtype = int)
         self.channels = {'F3':(1,1), 'Fz':(1,2), 'F4':(1,3), 
                             'C3':(2,1), 'Cz':(2,2), 'C4':(2,3), 
                             'P3':(3,1), 'Pz':(2,2), 'P4':(3,3)}
