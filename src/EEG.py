@@ -69,7 +69,7 @@ class EEG_grand_average():
         self.data = None
         self.dim_info = {"Channels":70, "Samples":625, "Conds":9, "Subjects":0}
         self.sample_rate = None
-        self.times = np.arange(-250, 1250, 2, dtype = int)
+        self.times = np.arange(-250, 1000, 2, dtype = int)
         
     def read_data(self, infile):
         """
@@ -80,10 +80,28 @@ class EEG_grand_average():
         import scipy.io as mat2py
         inputs = mat2py.loadmat(infile)
         self.data = inputs["subavg"]
+
      
-     def GFP_GMD(self):
-        """
-        @TODO
-        """
-        pass
-        
+def GFP_GMD(data):
+    """
+    Returns Global Field Power (GFP) and Globale Map Dissimilarity (GMD) for a 
+    Channels * Samples dataset.
+    
+    @subset: data - subset from grand average. Channels must be first dimension,
+                    samples in the second dimension
+    @return: GFP, GMD: np-arrays with GFP and GMD
+    """
+    import numpy.matlib as np_ml
+
+    #calculate global field power
+    GFP = np.std(data, axis = 0)
+
+    #norm data
+    norm_factor = np_ml.repmat(GFP, data.shape[0],1)
+    data_normed = data / norm_factor
+
+    #calculate GMD
+    GMD = np.hstack((np.zeros((data_normed.shape[0],1),dtype = float), 
+                        np.diff(data_normed,1,1)))
+    GMD = np.std(GMD, axis = 0)
+    return GFP, GMD
