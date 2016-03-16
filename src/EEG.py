@@ -16,26 +16,96 @@ class EEG_dataset():
         """
         Empty init stub.
         """
+        self.header_info = {}
         self.data = None
-        self.sample_rate = 500
-        self.times = np.arange(-200, 800, 2, dtype = int)
-        self.channels = {'F3':(1,1), 'Fz':(1,2), 'F4':(1,3), 
-                            'C3':(2,1), 'Cz':(2,2), 'C4':(2,3), 
-                            'P3':(3,1), 'Pz':(2,2), 'P4':(3,3)}
+        self.channels = {}
+        self.times = [1,2,3,4]
+        self.sample_rate = None
+        self.reference = None
         self.events = []
-    
-    def read_data(self, infile):
-        '''
-        Read text from a csv file. Columns are samples, rows are channels.
-        @param: file - input filename
-        '''
-        self.data = np.genfromtxt(infile, delimiter = ',', dtype = float)
         
-    def edit_channel_names(self):
+    def __str__(self):
+        return 'Header: %s\nData: %s\nChannels: %s\n Times: %s array - %i,%i...%i\nSample rate: %i\nReference: %s\nEvents: %i' %(self.header_info, self.data.shape, self.channels, len(self.times), self.times[0], self.times[1], self.times[-1], self.sample_rate, self.reference, len(self.events))
+#        print self.header_info
+ #       print self.data.shape
+  #      print self.channels
+   #     print self.times
+    #    print self.sample_rate
+     #   print self.reference
+      #  print len(self.events)
+    
+    def read_data(self, hdr_infile, ref = 'noref!', add_ref = False):
+        '''
+        Read BVA.vhdr file and collect info in dictionary. Then read data file 
+        and marker file.
+        @param: hdr_infile - filename of BVA.vhdr file
+        @param: ref - String with name of the reference channel. Somehow not 
+                      provided in vhdr file
+        @param: add_ref -  If True, empty reference channel is added to data
+        '''
+        self.ref = ref
+
+        with open(hdr_infile,'r') as infile:
+            for line in infile:
+                if line[0:2] == '; ':
+                    continue
+                else:
+                    line = line.strip()
+                    if line == '[Comment]': #do not read on from here
+                        break
+                    elif '=' in line:
+                        line = line.split('=')
+                        if ',' in line[1]: #if it is a channel info line
+                            self.channels[line[1].split(',')[0]] = int(line[0].strip('Ch'))
+                        else: #if it is header info
+                            self.header_info[line[0]] = line[1]
+                    else:
+                        continue
+        #pre-process some of the header info
+        self.header_info['NumberOfChannels'] = int(self.header_info['NumberOfChannels'])
+        self.sample_rate = 1000000 / int(self.header_info['SamplingInterval'])
+                
+        #read data
+        self.read_data_file(self.header_info['DataFile'], self.header_info['NumberOfChannels'], add_ref)
+        
+        
+    def read_data_file(self, data_infile, no_channels, add_ref = None):
+        '''
+        Read text from a binary file.
+        @param: data_file - filename of BVA.eeg file
+        @param: no_channels - number of recorded channels
+        @param: add_ref - string with name of the reference channel. If None, 
+                          no reference channel is added
+        '''
+        with open(data_infile,'rb') as infile:
+            #read data
+            data_formats = {'INT_16': np.uint16}
+            self.data = np.fromfile(infile, dtype = data_formats[self.header_info['BinaryFormat']])
+            
+            #reshape
+            if self.header_info['DataOrientation'] == 'MULTIPLEXED':
+                self.data = np.reshape(self.data, (-1, no_channels))
+                #transpose so it is channels * samples
+                self.data = np.transpose(self.data)
+            else: #VECTORIZED
+                self.data = np.reshape(self.data, (no_channels, -1))
+            
+            #convert to floats in muVolt
+            self.data = self.data.astype(np.float32)/100
+            
+            #add an empty reference channel which will be filled upon 
+            #re-referencing
+            if add_ref:
+                self.channels[self.ref] = len(self.channels) + 1
+                self.data = np.vstack((self.data, np.zeros((1,self.data.shape[1]),dtype = np.float32)))
+
+                
+    def edit_channel_info(self):
         """
         @TODO
         """
         pass
+
 
     def filter_bandpass(self):
         """
@@ -43,17 +113,42 @@ class EEG_dataset():
         """
         pass
 
-    def re_reference(self):
-        """
-        @TODO
-        """
-        pass
 
-    def MSEC_correct(self):
+    def rereference(self, channels):
         """
-        @TODO
+        Re-reference data to a certain channel/ mean of channels
+        @param: channels - channels to re-reference to. If [] is given, average
+                           reference is computed.
         """
-        pass
+        import numpy.matlib as np_ml
+        
+        if channels == []:
+            ref = np.mean(self.data, axis=0)
+        elif len(channels) > 1:
+            ref = np.mean(self.data[channels,:], axis=0)
+        else: #if it is just a single channel simply select it
+            ref = self.data[channels,:]
+        
+        #reref
+        ref = np.transpose(np_ml.repmat(ref, self.data.shape[1], 1))
+        self.data = self.data - ref
+
+
+    def MSEC_correct(self, corr_matrix_file):
+        """
+        Perform MSEC correction based on a BESA correction file. 
+        NOTE: Automatically removes artefact channels for now
+        @param: corr_matrix_file - File holding a correction matrix.
+        """
+        #read corr matrix
+        with open(corr_matrix_file, 'rb') as infile:
+            corr_matrix = np.genfromtxt(infile, dtype = np.float32, delimiter = '\t', skip_header = 1)[:,1:]
+
+        #correct
+        self.data = np.dot(corr_matrix,self.data)
+        
+        #remove artefact channels
+        self.data = self.data[0:len(channels)+1,:]
 
 
 class EEG_grand_average():
@@ -84,7 +179,7 @@ class EEG_grand_average():
      
 def GFP_GMD(data):
     """
-    Returns Global Field Power (GFP) and Globale Map Dissimilarity (GMD) for a 
+    Returns Global Field Power (GFP) and Global Map Dissimilarity (GMD) for a 
     Channels * Samples dataset.
     
     @subset: data - subset from grand average. Channels must be first dimension,
