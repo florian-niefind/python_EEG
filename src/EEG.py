@@ -5,6 +5,7 @@
 # @date: 2016-03-11
  
 import numpy as np
+import collections
 
 class EEG_dataset():
     """
@@ -18,21 +19,18 @@ class EEG_dataset():
         """
         self.header_info = {}
         self.data = None
-        self.channels = {}
-        self.times = [1,2,3,4]
+        self.channels = collections.OrderedDict()
+        self.times = []
         self.sample_rate = None
         self.reference = None
         self.events = []
         
     def __str__(self):
-        return 'Header: %s\nData: %s\nChannels: %s\n Times: %s array - %i,%i...%i\nSample rate: %i\nReference: %s\nEvents: %i' %(self.header_info, self.data.shape, self.channels, len(self.times), self.times[0], self.times[1], self.times[-1], self.sample_rate, self.reference, len(self.events))
-#        print self.header_info
- #       print self.data.shape
-  #      print self.channels
-   #     print self.times
-    #    print self.sample_rate
-     #   print self.reference
-      #  print len(self.events)
+        if self.data != None:
+            return 'Header: %s\nData: %s\nChannels: %s\nTimes: %s array - %i,%i...,%i\nSample rate: %i\nReference: %s\nEvents: %i' %(self.header_info, self.data.shape, self.channels, len(self.times), self.times[0], self.times[1], self.times[-1], self.sample_rate, self.reference, len(self.events))
+        else:
+            return 'No data loaded yet.'
+
     
     def read_data(self, hdr_infile, ref = 'noref!', add_ref = False):
         '''
@@ -67,6 +65,9 @@ class EEG_dataset():
                 
         #read data
         self.read_data_file(self.header_info['DataFile'], self.header_info['NumberOfChannels'], add_ref)
+        
+        #add times
+        self.times = np.array(xrange(0,self.data.shape[1]),dtype = np.int) * 1000/self.sample_rate
         
         
     def read_data_file(self, data_infile, no_channels, add_ref = None):
@@ -116,7 +117,7 @@ class EEG_dataset():
 
     def rereference(self, channels):
         """
-        Re-reference data to a certain channel/ mean of channels
+        Re-reference data to a certain channel or mean of channels
         @param: channels - channels to re-reference to. If [] is given, average
                            reference is computed.
         """
@@ -130,7 +131,7 @@ class EEG_dataset():
             ref = self.data[channels,:]
         
         #reref
-        ref = np.transpose(np_ml.repmat(ref, self.data.shape[1], 1))
+        ref = np_ml.repmat(ref, self.data.shape[0], 1)
         self.data = self.data - ref
 
 
@@ -148,7 +149,7 @@ class EEG_dataset():
         self.data = np.dot(corr_matrix,self.data)
         
         #remove artefact channels
-        self.data = self.data[0:len(channels)+1,:]
+        self.data = self.data[0:len(slef.channels)+1,:]
 
 
 class EEG_grand_average():
